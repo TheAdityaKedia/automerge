@@ -1,4 +1,4 @@
-const { List, Map, Set, fromJS } = require('immutable')
+const { List, Map, Set } = require('immutable')
 const uuid = require('./uuid')
 const FreezeAPI = require('./freeze_api')
 
@@ -17,15 +17,26 @@ class DocSet {
   }
 
   getCurrentSnapshot (docId) {
-    return this.getHistory(docId).last()
+    const docs = this.getHistory(docId)
+    if (docs) {
+      return docs.last()
+    } else {
+      return null
+    }
   }
 
   getDoc (docId) {
-    return this.getCurrentSnapshot(docId).get("doc")
+    const snapshot = this.getCurrentSnapshot(docId)
+    if (snapshot) {
+      return snapshot.get("doc")
+    } else {
+      return null
+    }
   }
 
   clockIsOnCurrentSnapshot (docId, clock, timestamp) {
     const currentSnapshot = this.getCurrentSnapshot(docId)
+    if (!currentSnapshot) return true
     const startClock = currentSnapshot.get("startClock")
     if (startClock == null) {
       return true
@@ -56,7 +67,7 @@ class DocSet {
     const prevClock = currentDoc._state.getIn(['opSet', 'clock'])
     currentDoc = currentDoc._state.setIn(['opSet', 'clock'], clock)
 
-    let newSnapshot = fromJS({
+    let newSnapshot = Map({
       "doc": currentDoc,
       "startClock": clock,
       "startTimestamp": new Date(),
@@ -68,22 +79,17 @@ class DocSet {
   }
 
   setDoc (docId, doc) {
-    let docList = this.getCurrentSnapshot(docId);
-    let snapshot
+    let docList = this.getHistory(docId);
     if (docList) {
-      snapshot = docList.pop()
-      snapshot["doc"] = doc
-      docList = docList.push(snapshot)
+      docList = docList.setIn([docList.size, "doc"], doc)
       this.docs = this.docs.set(docId, docList)
     } else {
-      docList = List()
-      snapshot = fromJS({
+      let snapshot = Map({
         "doc": doc,
         "startClock": null,
         "startTimestamp": new Date(),
       })
-      docList = docList.push(snapshot)
-      this.docs = this.docs.set(docId, docList)
+      this.docs = this.docs.set(docId, List([snapshot]))
     }
     this.handlers.forEach(handler => handler(docId, doc))
   }
