@@ -1,4 +1,4 @@
-const { Map, Set } = require('immutable')
+const { List, Map, Set, fromJS } = require('immutable')
 const uuid = require('./uuid')
 const FreezeAPI = require('./freeze_api')
 
@@ -12,20 +12,96 @@ class DocSet {
     return this.docs.keys()
   }
 
-  getDoc (docId) {
+  getHistory (docId) {
     return this.docs.get(docId)
   }
 
+  getCurrentSnapshot (docId) {
+    return this.getHistory(docId).last()
+  }
+
+  getDoc (docId) {
+    return this.getCurrentSnapshot(docId).get("doc")
+  }
+
+  clockIsOnCurrentSnapshot (docId, clock, timestamp) {
+    const currentSnapshot = this.getCurrentSnapshot(docId)
+    const startClock = currentSnapshot.get("startClock")
+    if (startClock == null) {
+      return true
+    }
+    return compareClock(startClock, clock)
+  }
+
+  compareClock(clock1, clock2) {
+    Object.keys(clock2).forEach((key) => {
+      if (clock1[key] > clock2[key]) return false;
+    })
+    return true;
+  }
+
+  getClosestSnapshot (docId, clock, timestamp) {
+    // Do nothing
+    return
+  }
+
+  createNewSnapshot (docId, clock) {
+    const oldDoc = this.getDoc(docId)
+    const currentDoc = Automerge.change(
+      Automerge.init(oldDoc._actorId),
+      `Snapshot starting from ${clock}`,
+      doc => { doc.note = oldDoc.note }
+    )
+    // Set the clock for the new doc
+    const prevClock = currentDoc._state.getIn(['opSet', 'clock'])
+    currentDoc = currentDoc._state.setIn(['opSet', 'clock'], clock)
+
+    let newSnapshot = fromJS({
+      "doc": currentDoc,
+      "startClock": clock,
+      "startTimestamp": new Date(),
+    })
+    docList = this.getCurrentSnapshot(docId)
+    docList = docList.push(newSnapshot)
+    this.docs = this.docs.set(docId, docList)
+    this.handlers.forEach(handler => handler(docId, currentDoc))
+  }
+
   setDoc (docId, doc) {
-    this.docs = this.docs.set(docId, doc)
+    let docList = this.getCurrentSnapshot(docId);
+    let snapshot
+    if (docList) {
+      snapshot = docList.pop()
+      snapshot["doc"] = doc
+      docList = docList.push(snapshot)
+      this.docs = this.docs.set(docId, docList)
+    } else {
+      docList = List()
+      snapshot = fromJS({
+        "doc": doc,
+        "startClock": null,
+        "startTimestamp": new Date(),
+      })
+      docList = docList.push(snapshot)
+      this.docs = this.docs.set(docId, docList)
+    }
     this.handlers.forEach(handler => handler(docId, doc))
   }
 
-  applyChanges (docId, changes) {
-    let doc = this.docs.get(docId) || FreezeAPI.init(uuid())
-    doc = FreezeAPI.applyChanges(doc, changes, true)
-    this.setDoc(docId, doc)
-    return doc
+  applyChanges (docId, changes, clock, timestamp) {
+    let doc;
+    if (this.clockIsOnCurrentSnapshot(docId, clock, timestamp)) {
+      doc = this.getDoc(docId) || FreezeAPI.init(uuid())
+      doc = FreezeAPI.applyChanges(doc, changes, true)
+      this.setDoc(docId, doc)
+      return doc
+    } else {
+      if (this.getClosestSnapshot(docId, clock, timestamp)) {
+        // Do nothing
+      }
+      // For now, reject change.
+      return false
+    }
   }
 
   registerHandler (handler) {
