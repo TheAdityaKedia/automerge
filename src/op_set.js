@@ -9,8 +9,12 @@ function isConcurrent(opSet, op1, op2) {
   const [actor2, seq2] = [op2.get('actor'), op2.get('seq')]
   if (!actor1 || !actor2 || !seq1 || !seq2) return false
 
-  const clock1 = opSet.getIn(['states', actor1, seq1 - 1, 'allDeps'])
-  const clock2 = opSet.getIn(['states', actor2, seq2 - 1, 'allDeps'])
+  const clock1Offset = opSet.getIn(['offset', actor1]) || 0
+  const clock2Offset = opSet.getIn(['offset', actor2]) || 0
+
+
+  const clock1 = opSet.getIn(['states', actor1, seq1 - clock1Offset - 1, 'allDeps'])
+  const clock2 = opSet.getIn(['states', actor2, seq2 - clock2Offset - 1, 'allDeps'])
 
   return clock1.get(actor2, 0) < seq2 && clock2.get(actor1, 0) < seq1
 }
@@ -269,13 +273,17 @@ function applyQueuedOps(opSet) {
   }
 }
 
-function init() {
+function init(clock) {
+  if (!clock) {
+    clock = Map()
+  }
   return Map()
     .set('states',   Map())
     .set('history',  List())
     .set('byObject', Map().set(ROOT_ID, Map()))
-    .set('clock',    Map())
-    .set('deps',     Map())
+    .set('clock',    clock)
+    .set('offset',   clock)
+    .set('deps',     clock)
     .set('local',    List())
     .set('queue',    List())
 }

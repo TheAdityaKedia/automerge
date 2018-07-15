@@ -306,4 +306,82 @@ describe('Automerge.Connection', () => {
     assert.deepEqual(nodes[2].getDoc('doc1'), {list: ['hello']})
     assert.deepEqual(nodes[3].getDoc('doc1'), {list: ['hello']})
   })
+
+  it('should create snapshots', () => {
+    nodes[1].setDoc('doc1', doc1)
+
+    let clock = nodes[1].getDoc('doc1')._state.getIn(['opSet', 'clock'])
+
+    const prevClock = doc1._state.getIn(['opSet', 'clock'])
+    const currentDoc = Automerge.shallowCopy(
+      Automerge.init(doc1._actorId, prevClock),
+      `Snapshot starting from ${clock}`,
+      doc => { doc = doc1 }
+    )
+
+    // Create snapshot
+    assert.strictEqual(nodes[1].getHistory('doc1').size, 1)
+    nodes[1].createNewSnapshot('doc1', clock, currentDoc)
+    assert.strictEqual(nodes[1].getHistory('doc1').size, 2)
+
+    // Update latest snapshot
+    doc1 = nodes[1].getDoc('doc1')
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = 'doc1++')
+    nodes[1].setDoc('doc1', doc1)
+    assert.strictEqual(nodes[1].getHistory('doc1').size, 2)
+
+    // Verify history is working as expected
+    assert.strictEqual(nodes[1].getHistory('doc1').get(0).get("doc").doc1, 'doc1')
+    assert.strictEqual(nodes[1].getHistory('doc1').get(1).get("doc").doc1, 'doc1++')
+    assert.strictEqual(nodes[1].getDoc('doc1').doc1, 'doc1++')
+  })
+
+  it('should sync even with snapshots', () => {
+    nodes[1].setDoc('doc1', doc1)
+    let clock = nodes[1].getDoc('doc1')._state.getIn(['opSet', 'clock'])
+
+    const prevClock = doc1._state.getIn(['opSet', 'clock'])
+    const currentDoc = Automerge.shallowCopy(
+      Automerge.init(doc1._actorId, prevClock),
+      `Snapshot starting from ${clock}`,
+      doc => { doc.doc1 = doc1.doc1 },
+    )
+
+    assert.strictEqual(nodes[1].getHistory('doc1').size, 1)
+    nodes[1].createNewSnapshot('doc1', clock, currentDoc)
+
+    assert.strictEqual(nodes[1].getHistory('doc1').size, 2)
+
+    doc1 = nodes[1].getDoc('doc1')
+
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = 'doc1++')
+    nodes[1].setDoc('doc1', doc1)
+
+    execution([[1, 2]], [
+      // Node 1 advertises document
+      {from: 1, to: 2, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {[doc1._actorId]: 2}})
+      }},
+
+      // Node 2 requests document
+      {from: 2, to: 1, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {}})
+      }},
+
+      // Node 1 responds with document data
+      {from: 1, to: 2, deliver: true, match(msg) {
+        assert.strictEqual(msg.docId, 'doc1')
+        assert.strictEqual(msg.changes.length, 2)
+      }},
+
+      () => {
+        assert.strictEqual(nodes[2].getDoc('doc1').doc1, 'doc1++')
+      },
+
+      // Node 2 acknowledges receipt
+      {from: 2, to: 1, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {[doc1._actorId]: 2}})
+      }}
+    ])
+  })
 })

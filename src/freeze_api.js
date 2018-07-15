@@ -236,8 +236,8 @@ function rootObject(state, rootObj) {
   return rootObj
 }
 
-function init(actorId) {
-  const [opSet, rootObj] = materialize(OpSet.init())
+function init(actorId, clock) {
+  const [opSet, rootObj] = materialize(OpSet.init(clock))
   const state = Map({actorId, opSet})
   return rootObject(state, rootObj)
 }

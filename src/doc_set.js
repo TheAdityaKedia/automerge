@@ -56,23 +56,18 @@ class DocSet {
     return
   }
 
-  createNewSnapshot (docId, clock) {
+  createNewSnapshot (docId, clock, currentDoc) {
     const oldDoc = this.getDoc(docId)
-    const currentDoc = Automerge.change(
-      Automerge.init(oldDoc._actorId),
-      `Snapshot starting from ${clock}`,
-      doc => { doc.note = oldDoc.note }
-    )
     // Set the clock for the new doc
-    const prevClock = currentDoc._state.getIn(['opSet', 'clock'])
-    currentDoc = currentDoc._state.setIn(['opSet', 'clock'], clock)
+    // const prevClock = currentDoc._state.getIn(['opSet', 'clock'])
+    // currentDoc._state = currentDoc._state.setIn(['opSet', 'clock'], clock)
 
     let newSnapshot = Map({
       "doc": currentDoc,
       "startClock": clock,
       "startTimestamp": new Date(),
     })
-    docList = this.getCurrentSnapshot(docId)
+    let docList = this.getHistory(docId)
     docList = docList.push(newSnapshot)
     this.docs = this.docs.set(docId, docList)
     this.handlers.forEach(handler => handler(docId, currentDoc))
@@ -81,7 +76,7 @@ class DocSet {
   setDoc (docId, doc) {
     let docList = this.getHistory(docId);
     if (docList) {
-      docList = docList.setIn([docList.size, "doc"], doc)
+      docList = docList.setIn([docList.size - 1, "doc"], doc)
       this.docs = this.docs.set(docId, docList)
     } else {
       let snapshot = Map({

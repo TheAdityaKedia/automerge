@@ -54,6 +54,35 @@ function makeChange(root, newState, message) {
   }
 }
 
+function makeCopy(root, newState, message) {
+  // If there are multiple assignment operations for the same object and key,
+  // keep only the most recent
+  let assignments = Map()
+  const ops = List().withMutations(ops => {
+    for (let op of newState.getIn(['opSet', 'local']).reverse()) {
+      if (['set', 'del', 'link'].includes(op.get('action'))) {
+        if (!assignments.getIn([op.get('obj'), op.get('key')])) {
+          assignments = assignments.setIn([op.get('obj'), op.get('key')], true)
+          ops.unshift(op)
+        }
+      } else {
+        ops.unshift(op)
+      }
+    }
+  })
+
+  const actor = root._state.get('actorId')
+  const seq = root._state.getIn(['opSet', 'clock', actor], 0)
+  const deps = root._state.getIn(['opSet', 'deps']).remove(actor)
+  const change = fromJS({actor, seq, deps, message, ops})
+
+  if (isImmutable(root)) {
+    return ImmutableAPI.applyChanges(root, List.of(change), true)
+  } else {
+    return FreezeAPI.applyChanges(root, List.of(change), true)
+  }
+}
+
 function applyChanges(doc, changes) {
   checkTarget('applyChanges', doc)
   const incremental = (doc._state.getIn(['opSet', 'history']).size > 0)
@@ -81,7 +110,7 @@ function merge(local, remote) {
 
 module.exports = {
   checkTarget, isObject, isImmutable,
-  makeChange,
+  makeChange, makeCopy,
   applyChanges,
   merge,
 }
