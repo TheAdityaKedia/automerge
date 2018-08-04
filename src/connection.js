@@ -5,6 +5,9 @@ const OpSet = require('./op_set')
 // Returns false if there is at least one component in which clock1 is greater than clock2
 // (that is, either clock1 is overall greater than clock2, or the clocks are incomparable).
 function lessOrEqual(clock1, clock2) {
+  if (clock1.get("version") !== undefined && clock2.get("version") !== undefined && clock1.get("version") !== clock2.get("version")) {
+    return clock1.get("version") < clock2.get("version")
+  }
   return clock1.keySeq().concat(clock2.keySeq()).reduce(
     (result, key) => (result && clock1.get(key, 0) <= clock2.get(key, 0)),
     true)
@@ -93,12 +96,54 @@ class Connection {
     this.maybeSendChanges(docId)
   }
 
+  // Return  0 if the documents are on the same version.
+  // Return -1 if REMOTE doc is ahead, LOCAL doc is behind.
+  // Return  1 if LOCAL doc is ahead, REMOTE doc is behind.
+  compareDocVersion (docId) {
+    if (this._ourClock.getIn([docId, "version"]) < this._theirClock.getIn([docId, "version"])) {
+      return -1;
+    } else if (this._ourClock.getIn([docId, "version"]) > this._theirClock.getIn([docId, "version"])) {
+      return 1;
+    } else {
+      return 0;
+    }
+  }
+
   receiveMsg (msg) {
     if (msg.clock) {
       this._theirClock = clockUnion(this._theirClock, msg.docId, fromJS(msg.clock))
+      const clockCompare = this.compareDocVersion(msg.docId)
+      if (clockCompare !== 0) {
+        // Three cases:
+        if (clockCompare === -1) {
+          // If REMOTE client has a newer version:
+          const totalChanges = Object.values(msg.clock).reduce((a, b) => a + b, 0) - msg.clock.version
+          let containsAllChanges = msg.changes ? msg.changes.length == totalChanges : false;
+
+          if (!containsAllChanges) {
+            // - If REMOTE client has a newer version without the required
+            //     changes, request the new document by sending the null clock.
+            this.sendMsg(msg.docId, Map())
+          } else {
+            // - If REMOTE client has a newer version with the required changes,
+            //     continue.
+            // PASS
+          }
+        } else if (clockCompare === 1) {
+          // - If THIS client has a newer version, treat the message as if the
+          //     REMOTE sent a null clock.
+          this._theirClock = this._theirClock.set(msg.docId, Map())
+        }
+      }
     }
+
     if (msg.changes) {
-      return this._docSet.applyChanges(msg.docId, fromJS(msg.changes))
+      const theirVersion = this._theirClock.getIn([msg.docId, "version"])
+      return this._docSet.applyChanges(
+        msg.docId,
+        fromJS(msg.changes),
+        theirVersion
+      )
     }
 
     if (this._docSet.getDoc(msg.docId)) {

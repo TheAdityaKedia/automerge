@@ -63,6 +63,19 @@ describe('Automerge.Connection', () => {
     }
   }
 
+  function createSnapshot(nodeNum, docId) {
+    const docForId = nodes[nodeNum].getDoc(docId)
+    const prevVersion = nodes[nodeNum].getCurrentVersion(docId)
+
+    return Automerge.createSnapshot(
+      docForId,
+      `Snapshot starting from ${prevVersion}`,
+      prevVersion + 1,
+      doc => { doc.doc1 = docForId.doc1 }
+    )
+  }
+
+
   it('should not send messages if there are no documents', () => {
     execution([[1, 2]], [])
   })
@@ -72,7 +85,7 @@ describe('Automerge.Connection', () => {
 
     execution([[1, 2]], [
       {from: 1, to: 2, drop: true, match(msg) {
-        assert.deepEqual(msg, {docId: 'doc1', clock: {[doc1._actorId]: 1}})
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 0, [doc1._actorId]: 1}})
       }}
     ])
   })
@@ -83,7 +96,7 @@ describe('Automerge.Connection', () => {
     execution([[1, 2]], [
       // Node 1 advertises document
       {from: 1, to: 2, deliver: true, match(msg) {
-        assert.deepEqual(msg, {docId: 'doc1', clock: {[doc1._actorId]: 1}})
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 0, [doc1._actorId]: 1}})
       }},
 
       // Node 2 requests document
@@ -101,7 +114,7 @@ describe('Automerge.Connection', () => {
 
       // Node 2 acknowledges receipt
       {from: 2, to: 1, deliver: true, match(msg) {
-        assert.deepEqual(msg, {docId: 'doc1', clock: {[doc1._actorId]: 1}})
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 0, [doc1._actorId]: 1}})
       }}
     ])
   })
@@ -114,10 +127,10 @@ describe('Automerge.Connection', () => {
     execution([[1, 2]], [
       // The two nodes concurrently and independently send an initial advertisement
       {from: 1, to: 2, match(msg) {
-        assert.deepEqual(msg, {docId: 'doc1', clock: {[doc1._actorId]: 1}})
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 0, [doc1._actorId]: 1}})
       }},
       {from: 2, to: 1, match(msg) {
-        assert.deepEqual(msg, {docId: 'doc2', clock: {[doc2._actorId]: 1}})
+        assert.deepEqual(msg, {docId: 'doc2', clock: {"version": 0, [doc2._actorId]: 1}})
       }},
       {from: 1, to: 2, deliver: true}, {from: 2, to: 1, deliver: true},
 
@@ -155,10 +168,10 @@ describe('Automerge.Connection', () => {
     execution([[1, 2]], [
       // Initial advertisement messages
       {from: 1, to: 2, match(msg) {
-        assert.deepEqual(msg, {docId: 'doc1', clock: {[doc1._actorId]: 1}})
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 0, [doc1._actorId]: 1}})
       }},
       {from: 2, to: 1, match(msg) {
-        assert.deepEqual(msg, {docId: 'doc1', clock: {[doc1._actorId]: 1, [doc2._actorId]: 1}})
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 0, [doc1._actorId]: 1, [doc2._actorId]: 1}})
       }},
       {from: 1, to: 2, deliver: true}, {from: 2, to: 1, deliver: true},
 
@@ -170,12 +183,12 @@ describe('Automerge.Connection', () => {
 
       // Node 1 acknowledges the change, and that's it
       {from: 1, to: 2, deliver: true, match(msg) {
-        assert.deepEqual(msg, {docId: 'doc1', clock: {[doc1._actorId]: 1, [doc2._actorId]: 1}})
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 0, [doc1._actorId]: 1, [doc2._actorId]: 1}})
       }}
     ])
 
     assert.strictEqual(nodes[1].getDoc('doc1').doc1, 'doc1++')
-    assert.strictEqual(nodes[1].getDoc('doc1').doc1, 'doc1++')
+    assert.strictEqual(nodes[2].getDoc('doc1').doc1, 'doc1++')
   })
 
   it('should bidirectionally merge divergent document copies', () => {
@@ -188,25 +201,25 @@ describe('Automerge.Connection', () => {
     execution([[1, 2]], [
       // Node 1 sends an advertisement but node 2 doesn't (for whatever reason)
       {from: 1, to: 2, deliver: true, match(msg) {
-        assert.deepEqual(msg, {docId: 'doc1', clock: {[doc1._actorId]: 2}})
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 0, [doc1._actorId]: 2}})
       }},
       {from: 2, to: 1, drop: true},
 
       // Node 2 sends the change that node 1 is missing
       {from: 2, to: 1, deliver: true, match(msg) {
-        assert.deepEqual(msg.clock, {[doc1._actorId]: 1, [doc2._actorId]: 1})
+        assert.deepEqual(msg.clock, {"version": 0, [doc1._actorId]: 1, [doc2._actorId]: 1})
         assert.strictEqual(msg.changes.length, 1)
       }},
 
       // Node 1 acknowledges node 2's change, and sends the change that node 2 is missing
       {from: 1, to: 2, deliver: true, match(msg) {
-        assert.deepEqual(msg.clock, {[doc1._actorId]: 2, [doc2._actorId]: 1})
+        assert.deepEqual(msg.clock, {"version": 0, [doc1._actorId]: 2, [doc2._actorId]: 1})
         assert.strictEqual(msg.changes.length, 1)
       }},
 
       // Node 2 acknowledges node 1's change
       {from: 2, to: 1, deliver: true, match(msg) {
-        assert.deepEqual(msg.clock, {[doc1._actorId]: 2, [doc2._actorId]: 1})
+        assert.deepEqual(msg.clock, {"version": 0, [doc1._actorId]: 2, [doc2._actorId]: 1})
       }}
     ])
 
@@ -222,7 +235,7 @@ describe('Automerge.Connection', () => {
     execution([[1, 2], [1, 3]], [
       // Node 2 advertises the document
       {from: 2, to: 1, deliver: true, match(msg) {
-        assert.deepEqual(msg, {docId: 'doc1', clock: {[doc1._actorId]: 1}})
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 0, [doc1._actorId]: 1}})
       }},
 
       // Node 1 requests the document from node 2
@@ -235,7 +248,7 @@ describe('Automerge.Connection', () => {
       // Node 1 sends acknowledgement to node 2, and advertisement to node 3
       {from: 1, to: 2, deliver: true},
       {from: 1, to: 3, deliver: true, match(msg) {
-        assert.deepEqual(msg, {docId: 'doc1', clock: {[doc1._actorId]: 1}})
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 0, [doc1._actorId]: 1}})
       }},
 
       // Node 3 requests the document from node 1
@@ -273,17 +286,17 @@ describe('Automerge.Connection', () => {
         nodes[1].setDoc('doc1', doc1)
       },
       {from: 1, to: 2, deliver: true, match(msg) {
-        assert.deepEqual(msg.clock, {[doc1._actorId]: 2})
+        assert.deepEqual(msg.clock, {"version": 0, [doc1._actorId]: 2})
         assert.strictEqual(msg.changes.length, 1)
       }},
       {from: 1, to: 3, match(msg) {
-        assert.deepEqual(msg.clock, {[doc1._actorId]: 2})
+        assert.deepEqual(msg.clock, {"version": 0, [doc1._actorId]: 2})
         assert.strictEqual(msg.changes.length, 1)
       }},
 
       // Node 2 acknowledges to node 1, and forwards to node 3
       {from: 2, to: 1, deliver: true, match(msg) {
-        assert.deepEqual(msg, {docId: 'doc1', clock: {[doc1._actorId]: 2}})
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 0, [doc1._actorId]: 2}})
       }},
       {from: 2, to: 3, match(msg) {
         assert.strictEqual(msg.changes.length, 1)
@@ -295,10 +308,10 @@ describe('Automerge.Connection', () => {
 
       // Acknowledgements from node 3
       {from: 3, to: 1, deliver: true, match(msg) {
-        assert.deepEqual(msg.clock, {[doc1._actorId]: 2})
+        assert.deepEqual(msg.clock, {"version": 0, [doc1._actorId]: 2})
       }},
       {from: 3, to: 2, deliver: true, match(msg) {
-        assert.deepEqual(msg.clock, {[doc1._actorId]: 2})
+        assert.deepEqual(msg.clock, {"version": 0, [doc1._actorId]: 2})
       }}
     ])
 
@@ -306,4 +319,601 @@ describe('Automerge.Connection', () => {
     assert.deepEqual(nodes[2].getDoc('doc1'), {list: ['hello']})
     assert.deepEqual(nodes[3].getDoc('doc1'), {list: ['hello']})
   })
+
+  it('should create snapshots', () => {
+    nodes[1].setDoc('doc1', doc1)
+
+    const currentDoc = createSnapshot(1, 'doc1')
+
+    // Create snapshot
+    assert.strictEqual(nodes[1].getHistory('doc1').size, 1)
+    nodes[1].createNewSnapshot('doc1', currentDoc)
+    assert.strictEqual(nodes[1].getHistory('doc1').size, 2)
+
+    // Update latest snapshot
+    doc1 = nodes[1].getDoc('doc1')
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = 'doc1++')
+    nodes[1].setDoc('doc1', doc1)
+    assert.strictEqual(nodes[1].getHistory('doc1').size, 2)
+
+    // Verify history is working as expected
+    assert.strictEqual(nodes[1].getHistory('doc1').get(0).get('doc').doc1, 'doc1')
+    assert.strictEqual(nodes[1].getHistory('doc1').get(1).get('doc').doc1, 'doc1++')
+    assert.strictEqual(nodes[1].getDoc('doc1').doc1, 'doc1++')
+  })
+
+  it('should use snapshots as a normal document for a single user', () => {
+    nodes[1].setDoc('doc1', doc1)
+    let currentDoc
+
+    doc1 = nodes[1].getDoc('doc1')
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = "1")
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = "2")
+    nodes[1].setDoc('doc1', doc1)
+    currentDoc = createSnapshot(1, 'doc1')
+    assert.strictEqual(nodes[1].getHistory('doc1').size, 1)
+    nodes[1].createNewSnapshot('doc1', currentDoc)
+    assert.strictEqual(nodes[1].getHistory('doc1').size, 2)
+
+    doc1 = nodes[1].getDoc('doc1')
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = "3")
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = "4")
+    nodes[1].setDoc('doc1', doc1)
+    currentDoc = createSnapshot(1, 'doc1')
+    assert.strictEqual(nodes[1].getHistory('doc1').size, 2)
+    nodes[1].createNewSnapshot('doc1', currentDoc)
+    assert.strictEqual(nodes[1].getHistory('doc1').size, 3)
+
+    doc1 = nodes[1].getDoc('doc1')
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = "5")
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = "6")
+    nodes[1].setDoc('doc1', doc1)
+    currentDoc = createSnapshot(1, 'doc1')
+    assert.strictEqual(nodes[1].getHistory('doc1').size, 3)
+    nodes[1].createNewSnapshot('doc1', currentDoc)
+    assert.strictEqual(nodes[1].getHistory('doc1').size, 4)
+
+    doc1 = nodes[1].getDoc('doc1')
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = "7")
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = "8")
+    nodes[1].setDoc('doc1', doc1)
+
+    // Verify history is working as expected
+    assert.strictEqual(nodes[1].getHistory('doc1').get(0).get('doc').doc1, '2')
+    assert.strictEqual(nodes[1].getHistory('doc1').get(0).get('doc')._state.get("opSet").get("history").size, 3)
+    assert.strictEqual(nodes[1].getHistory('doc1').get(1).get('doc').doc1, '4')
+    assert.strictEqual(nodes[1].getHistory('doc1').get(1).get('doc')._state.get("opSet").get("history").size, 3)
+    assert.strictEqual(nodes[1].getHistory('doc1').get(2).get('doc').doc1, '6')
+    assert.strictEqual(nodes[1].getHistory('doc1').get(2).get('doc')._state.get("opSet").get("history").size, 3)
+    assert.strictEqual(nodes[1].getHistory('doc1').get(3).get('doc').doc1, '8')
+    assert.strictEqual(nodes[1].getHistory('doc1').get(3).get('doc')._state.get("opSet").get("history").size, 3)
+    assert.strictEqual(nodes[1].getDoc('doc1').doc1, '8')
+  })
+
+  it('should sync two clients with snapshots with client 1 ahead. First, client 1 versions the document, then changes the new version.', () => {
+    nodes[1].setDoc('doc1', doc1)
+
+    const currentDoc = createSnapshot(1, 'doc1')
+    assert.strictEqual(nodes[1].getHistory('doc1').size, 1)
+    nodes[1].createNewSnapshot('doc1', currentDoc)
+    assert.strictEqual(nodes[1].getHistory('doc1').size, 2)
+
+    doc1 = nodes[1].getDoc('doc1')
+
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = 'doc1++')
+    nodes[1].setDoc('doc1', doc1)
+
+    execution([[1, 2]], [
+      // Node 1 advertises document
+      {from: 1, to: 2, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 1, [doc1._actorId]: 2}})
+      }},
+
+      // Node 2 requests document
+      {from: 2, to: 1, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {}})
+      }},
+
+      // Node 1 responds with document data
+      {from: 1, to: 2, deliver: true, match(msg) {
+        assert.strictEqual(msg.docId, 'doc1')
+        assert.strictEqual(msg.changes.length, 2)
+      }},
+
+      () => {
+        assert.strictEqual(nodes[1].getDoc('doc1').doc1, 'doc1++')
+        assert.strictEqual(nodes[2].getDoc('doc1').doc1, 'doc1++')
+      },
+
+      // Node 2 acknowledges receipt
+      {from: 2, to: 1, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 1, [doc1._actorId]: 2}})
+      }}
+    ])
+  })
+
+  it('should sync two clients with snapshots with client 1 ahead. First, client 1 edits the document, then versions the document.', () => {
+    nodes[1].setDoc('doc1', doc1)
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = 'doc1+')
+    nodes[1].setDoc('doc1', doc1)
+
+    const currentDoc = createSnapshot(1, 'doc1')
+    assert.strictEqual(nodes[1].getHistory('doc1').size, 1)
+    nodes[1].createNewSnapshot('doc1', currentDoc)
+    assert.strictEqual(nodes[1].getHistory('doc1').size, 2)
+
+    doc1 = nodes[1].getDoc('doc1')
+
+    execution([[1, 2]], [
+      // Node 1 advertises document
+      {from: 1, to: 2, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 1, [doc1._actorId]: 1}})
+      }},
+
+      // Node 2 requests document
+      {from: 2, to: 1, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {}})
+      }},
+
+      // Node 1 responds with document data
+      {from: 1, to: 2, deliver: true, match(msg) {
+        assert.strictEqual(msg.docId, 'doc1')
+        assert.strictEqual(msg.changes.length, 1)
+      }},
+
+      () => {
+        assert.strictEqual(nodes[1].getDoc('doc1').doc1, 'doc1+')
+        assert.strictEqual(nodes[2].getDoc('doc1').doc1, 'doc1+')
+      },
+
+      // Node 2 acknowledges receipt
+      {from: 2, to: 1, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 1, [doc1._actorId]: 1}})
+      }}
+    ])
+  })
+
+  it('should sync two clients with snapshots with client 1 ahead. First, client 1 edits the document, then versions the document, then edits the new document again.', () => {
+    nodes[1].setDoc('doc1', doc1)
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = 'doc1+')
+    nodes[1].setDoc('doc1', doc1)
+
+    const currentDoc = createSnapshot(1, 'doc1')
+    assert.strictEqual(nodes[1].getHistory('doc1').size, 1)
+    nodes[1].createNewSnapshot('doc1', currentDoc)
+    assert.strictEqual(nodes[1].getHistory('doc1').size, 2)
+
+    doc1 = nodes[1].getDoc('doc1')
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = 'doc1++')
+    nodes[1].setDoc('doc1', doc1)
+
+    execution([[1, 2]], [
+      // Node 1 advertises document
+      {from: 1, to: 2, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 1, [doc1._actorId]: 2}})
+      }},
+
+      // Node 2 requests document
+      {from: 2, to: 1, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {}})
+      }},
+
+      // Node 1 responds with document data
+      {from: 1, to: 2, deliver: true, match(msg) {
+        assert.strictEqual(msg.docId, 'doc1')
+        assert.strictEqual(msg.changes.length, 2)
+      }},
+
+      () => {
+        assert.strictEqual(nodes[1].getDoc('doc1').doc1, 'doc1++')
+        assert.strictEqual(nodes[2].getDoc('doc1').doc1, 'doc1++')
+      },
+
+      // Node 2 acknowledges receipt
+      {from: 2, to: 1, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 1, [doc1._actorId]: 2}})
+      }}
+    ])
+  })
+
+  it('should sync two clients with snapshots with client 1 ahead. First, client 1 edits the document twice, then versions the document, then edits the new document twice again.', () => {
+    nodes[1].setDoc('doc1', doc1)
+    let currentDoc
+
+    doc1 = nodes[1].getDoc('doc1')
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = "1")
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = "2")
+    nodes[1].setDoc('doc1', doc1)
+    currentDoc = createSnapshot(1, 'doc1')
+    nodes[1].createNewSnapshot('doc1', currentDoc)
+
+    doc1 = nodes[1].getDoc('doc1')
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = "3")
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = "4")
+    nodes[1].setDoc('doc1', doc1)
+    assert.strictEqual(nodes[1].getHistory('doc1').size, 2)
+
+    execution([[1, 2]], [
+      // Node 1 advertises document
+      {from: 1, to: 2, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 1, [doc1._actorId]: 3}})
+      }},
+
+      // Node 2 requests document
+      {from: 2, to: 1, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {}})
+      }},
+
+      // Node 1 responds with document data
+      {from: 1, to: 2, deliver: true, match(msg) {
+        assert.strictEqual(msg.docId, 'doc1')
+        assert.strictEqual(msg.changes.length, 3)
+      }},
+
+      () => {
+        assert.strictEqual(nodes[1].getDoc('doc1').doc1, '4')
+        assert.strictEqual(nodes[2].getDoc('doc1').doc1, '4')
+      },
+
+      // Node 2 acknowledges receipt
+      {from: 2, to: 1, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 1, [doc1._actorId]: 3}})
+      }}
+    ])
+  })
+
+  it('should bring an older version (client 1) up-to-date with a newer one (client 2)', () => {
+    let doc2 = Automerge.merge(Automerge.init(), doc1)
+    doc2 = Automerge.change(doc2, doc => doc.doc1 = 'doc1++')
+
+    nodes[1].setDoc('doc1', doc1)
+    nodes[2].setDoc('doc1', doc2)
+
+    let currentDoc = createSnapshot(2, 'doc1')
+    nodes[2].createNewSnapshot('doc1', currentDoc)
+
+    // Client 1 is on v0
+    assert.deepEqual(nodes[1].getDoc('doc1')._state.getIn(["opSet", "clock"]).toJS(), {"version": 0, [doc1._actorId]: 1})
+    assert.strictEqual(nodes[1].getCurrentVersion('doc1'), 0)
+
+    // Client 1 is on v1
+    assert.deepEqual(nodes[2].getDoc('doc1')._state.getIn(["opSet", "clock"]).toJS(), {"version": 1, [doc2._actorId]: 1})
+    assert.strictEqual(nodes[2].getCurrentVersion('doc1'), 1)
+
+    execution([[1, 2]], [
+      // Initial advertisement messages
+      {from: 1, to: 2, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 0, [doc1._actorId]: 1}})
+      }},
+      {from: 2, to: 1, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 1, [doc2._actorId]: 1}})
+      }},
+
+      // Node 2 sends missing changes to node 1
+      {from: 2, to: 1, deliver: true, match(msg) {
+        assert.strictEqual(msg.docId, 'doc1')
+        assert.strictEqual(msg.changes.length, 1)
+      }},
+
+      {from: 1, to: 2, deliver: true},
+
+      // Node 1 acknowledges the change, and that's it
+      {from: 1, to: 2, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 1, [doc2._actorId]: 1}})
+      }}
+    ])
+
+    assert.strictEqual(nodes[1].getDoc('doc1').doc1, 'doc1++')
+    assert.strictEqual(nodes[2].getDoc('doc1').doc1, 'doc1++')
+
+    assert.strictEqual(nodes[1].getCurrentVersion('doc1'), 1)
+    assert.strictEqual(nodes[2].getCurrentVersion('doc1'), 1)
+
+  })
+
+  it('should bring an older version (client 1) up-to-date with a newer one (client 2) - 2', () => {
+    let doc2 = Automerge.merge(Automerge.init(), doc1)
+    doc2 = Automerge.change(doc2, doc => doc.doc1 = 'doc1+')
+    doc2 = Automerge.change(doc2, doc => doc.doc1 = 'doc1++')
+
+    nodes[1].setDoc('doc1', doc1)
+    nodes[2].setDoc('doc1', doc2)
+
+    let currentDoc = createSnapshot(2, 'doc1')
+    nodes[2].createNewSnapshot('doc1', currentDoc)
+    doc2 = nodes[2].getDoc('doc1')
+    doc2 = Automerge.change(doc2, doc => doc.doc1 = 'doc1+++')
+    doc2 = Automerge.change(doc2, doc => doc.doc1 = 'doc1++++')
+    nodes[2].setDoc('doc1', doc2)
+
+    // Client 1 is on v0
+    assert.deepEqual(nodes[1].getDoc('doc1')._state.getIn(["opSet", "clock"]).toJS(), {"version": 0, [doc1._actorId]: 1})
+    assert.strictEqual(nodes[1].getCurrentVersion('doc1'), 0)
+
+    // Client 1 is on v1
+    assert.deepEqual(nodes[2].getDoc('doc1')._state.getIn(["opSet", "clock"]).toJS(), {"version": 1, [doc2._actorId]: 3})
+    assert.strictEqual(nodes[2].getCurrentVersion('doc1'), 1)
+
+    execution([[1, 2]], [
+      // Initial advertisement messages
+      {from: 1, to: 2, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 0, [doc1._actorId]: 1}})
+      }},
+      {from: 2, to: 1, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 1, [doc2._actorId]: 3}})
+      }},
+
+      // Node 2 sends missing changes to node 1
+      {from: 2, to: 1, deliver: true, match(msg) {
+        assert.strictEqual(msg.docId, 'doc1')
+        assert.strictEqual(msg.changes.length, 3)
+      }},
+
+      {from: 1, to: 2, deliver: true},
+
+      // Node 1 acknowledges the change, and that's it
+      {from: 1, to: 2, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 1, [doc2._actorId]: 3}})
+      }}
+    ])
+
+    assert.strictEqual(nodes[1].getDoc('doc1').doc1, 'doc1++++')
+    assert.strictEqual(nodes[2].getDoc('doc1').doc1, 'doc1++++')
+
+    assert.strictEqual(nodes[1].getCurrentVersion('doc1'), 1)
+    assert.strictEqual(nodes[2].getCurrentVersion('doc1'), 1)
+  })
+
+  it('should bring an older version (client 2) up-to-date with a newer one (client 1) - 1', () => {
+    let doc2 = Automerge.merge(Automerge.init(), doc1)
+
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = 'doc1+')
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = 'doc1++')
+
+    nodes[1].setDoc('doc1', doc1)
+    nodes[2].setDoc('doc1', doc2)
+
+    let currentDoc = createSnapshot(1, 'doc1')
+    nodes[1].createNewSnapshot('doc1', currentDoc)
+    doc1 = nodes[1].getDoc('doc1')
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = 'doc1+++')
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = 'doc1++++')
+    nodes[1].setDoc('doc1', doc1)
+
+    // Client 1 is on v1
+    assert.deepEqual(nodes[1].getDoc('doc1')._state.getIn(["opSet", "clock"]).toJS(), {"version": 1, [doc1._actorId]: 3})
+    assert.strictEqual(nodes[1].getCurrentVersion('doc1'), 1)
+
+    // Client 1 is on v0
+    assert.deepEqual(nodes[2].getDoc('doc1')._state.getIn(["opSet", "clock"]).toJS(), {"version": 0, [doc1._actorId]: 1})
+    assert.strictEqual(nodes[2].getCurrentVersion('doc1'), 0)
+
+    execution([[1, 2]], [
+      // Initial advertisement messages
+      {from: 1, to: 2, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 1, [doc1._actorId]: 3}})
+      }},
+      {from: 2, to: 1, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 0, [doc1._actorId]: 1}})
+      }},
+
+      // Node 2 sends null clock to node 1
+      {from: 2, to: 1, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {}})
+      }},
+
+      // Node 1 sends the new document
+      {from: 1, to: 2, deliver: true, match(msg) {
+        assert.deepEqual(msg.clock, {"version": 1, [doc1._actorId]: 3})
+        assert.strictEqual(msg.changes.length, 3)
+      }},
+
+      // Node 2 confirms the new clock
+      {from: 2, to: 1, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 1, [doc1._actorId]: 3}})
+      }},
+    ])
+
+    // Check document
+    assert.strictEqual(nodes[1].getDoc('doc1').doc1, 'doc1++++')
+    assert.strictEqual(nodes[2].getDoc('doc1').doc1, 'doc1++++')
+
+    // Check version
+    assert.strictEqual(nodes[1].getCurrentVersion('doc1'), 1)
+    assert.strictEqual(nodes[2].getCurrentVersion('doc1'), 1)
+  })
+
+  it('should bring an much older version (client 2) up-to-date with a newer one (client 1) - 2', () => {
+    let doc2 = Automerge.merge(Automerge.init(), doc1)
+
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = 'doc1+')
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = 'doc1++')
+
+    nodes[1].setDoc('doc1', doc1)
+    nodes[2].setDoc('doc1', doc2)
+
+    let currentDoc = createSnapshot(1, 'doc1')
+    nodes[1].createNewSnapshot('doc1', currentDoc)
+    currentDoc = createSnapshot(1, 'doc1')
+    nodes[1].createNewSnapshot('doc1', currentDoc)
+    doc1 = nodes[1].getDoc('doc1')
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = 'doc1+++')
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = 'doc1++++')
+    nodes[1].setDoc('doc1', doc1)
+
+    // Client 1 is on v2
+    assert.deepEqual(nodes[1].getDoc('doc1')._state.getIn(["opSet", "clock"]).toJS(), {"version": 2, [doc1._actorId]: 3})
+    assert.strictEqual(nodes[1].getCurrentVersion('doc1'), 2)
+
+    // Client 1 is on v0
+    assert.deepEqual(nodes[2].getDoc('doc1')._state.getIn(["opSet", "clock"]).toJS(), {"version": 0, [doc1._actorId]: 1})
+    assert.strictEqual(nodes[2].getCurrentVersion('doc1'), 0)
+
+    execution([[1, 2]], [
+      // Initial advertisement messages
+      {from: 1, to: 2, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 2, [doc1._actorId]: 3}})
+      }},
+      {from: 2, to: 1, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 0, [doc1._actorId]: 1}})
+      }},
+
+      // Node 2 sends null clock to node 1
+      {from: 2, to: 1, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {}})
+      }},
+
+      // Node 1 sends the new document
+      {from: 1, to: 2, deliver: true, match(msg) {
+        assert.deepEqual(msg.clock, {"version": 2, [doc1._actorId]: 3})
+        assert.strictEqual(msg.changes.length, 3)
+      }},
+
+      // Node 2 confirms the new clock
+      {from: 2, to: 1, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 2, [doc1._actorId]: 3}})
+      }},
+    ])
+
+    // Check document
+    assert.strictEqual(nodes[1].getDoc('doc1').doc1, 'doc1++++')
+    assert.strictEqual(nodes[2].getDoc('doc1').doc1, 'doc1++++')
+
+    // Check version
+    assert.strictEqual(nodes[1].getCurrentVersion('doc1'), 2)
+    assert.strictEqual(nodes[2].getCurrentVersion('doc1'), 2)
+  })
+
+  it('should bring client 1 on v2 and client 2 on v1 in sync to v2, losing any changes client 2 made to v1', () => {
+    let doc2 = Automerge.merge(Automerge.init(), doc1)
+
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = 'doc1+')
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = 'doc1++')
+
+    nodes[1].setDoc('doc1', doc1)
+    nodes[2].setDoc('doc1', doc2)
+
+    let currentDoc = createSnapshot(1, 'doc1')
+    nodes[1].createNewSnapshot('doc1', currentDoc)
+    currentDoc = createSnapshot(1, 'doc1')
+    nodes[1].createNewSnapshot('doc1', currentDoc)
+    doc1 = nodes[1].getDoc('doc1')
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = 'doc1+++')
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = 'doc1++++')
+    nodes[1].setDoc('doc1', doc1)
+
+    doc1 = nodes[1].getDoc('doc1')
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = 'should not show up!')
+    currentDoc = createSnapshot(2, 'doc1')
+    nodes[2].createNewSnapshot('doc1', currentDoc)
+
+    // Client 1 is on v2
+    assert.deepEqual(nodes[1].getDoc('doc1')._state.getIn(["opSet", "clock"]).toJS(), {"version": 2, [doc1._actorId]: 3})
+    assert.strictEqual(nodes[1].getCurrentVersion('doc1'), 2)
+
+    // Client 1 is on v1
+    assert.deepEqual(nodes[2].getDoc('doc1')._state.getIn(["opSet", "clock"]).toJS(), {"version": 1, [doc2._actorId]: 1})
+    assert.strictEqual(nodes[2].getCurrentVersion('doc1'), 1)
+
+    execution([[1, 2]], [
+      // Initial advertisement messages
+      {from: 1, to: 2, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 2, [doc1._actorId]: 3}})
+      }},
+      {from: 2, to: 1, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 1, [doc2._actorId]: 1}})
+      }},
+
+      // Node 2 sends null clock to node 1
+      {from: 2, to: 1, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {}})
+      }},
+
+      // Node 1 sends the new document
+      {from: 1, to: 2, deliver: true, match(msg) {
+        assert.deepEqual(msg.clock, {"version": 2, [doc1._actorId]: 3})
+        assert.strictEqual(msg.changes.length, 3)
+      }},
+
+      // Node 2 confirms the new clock
+      {from: 2, to: 1, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 2, [doc1._actorId]: 3}})
+      }},
+    ])
+
+    // Check document
+    assert.strictEqual(nodes[1].getDoc('doc1').doc1, 'doc1++++')
+    assert.strictEqual(nodes[2].getDoc('doc1').doc1, 'doc1++++')
+
+    // Check version
+    assert.strictEqual(nodes[1].getCurrentVersion('doc1'), 2)
+    assert.strictEqual(nodes[2].getCurrentVersion('doc1'), 2)
+  })
+
+  it('should bring client 1 on v1 and client 2 on v2 in sync to v2, losing any changes client 1 made to v1', () => {
+    let doc2 = Automerge.merge(Automerge.init(), doc1)
+
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = 'doc1+')
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = 'doc1++')
+
+    nodes[1].setDoc('doc1', doc1)
+    nodes[2].setDoc('doc1', doc2)
+
+    let currentDoc = createSnapshot(2, 'doc1')
+    nodes[2].createNewSnapshot('doc1', currentDoc)
+    currentDoc = createSnapshot(2, 'doc1')
+    nodes[2].createNewSnapshot('doc1', currentDoc)
+    doc1 = nodes[2].getDoc('doc1')
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = 'doc1+++')
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = 'doc1++++')
+    nodes[2].setDoc('doc1', doc1)
+
+    doc1 = nodes[1].getDoc('doc1')
+    doc1 = Automerge.change(doc1, doc => doc.doc1 = 'should not show up!')
+    currentDoc = createSnapshot(1, 'doc1')
+    nodes[1].createNewSnapshot('doc1', currentDoc)
+
+    // Client 1 is on v2
+    assert.deepEqual(nodes[1].getDoc('doc1')._state.getIn(["opSet", "clock"]).toJS(), {"version": 1, [doc1._actorId]: 1})
+    assert.strictEqual(nodes[1].getCurrentVersion('doc1'), 1)
+
+    // Client 1 is on v1
+    assert.deepEqual(nodes[2].getDoc('doc1')._state.getIn(["opSet", "clock"]).toJS(), {"version": 2, [doc2._actorId]: 3})
+    assert.strictEqual(nodes[2].getCurrentVersion('doc1'), 2)
+
+    execution([[1, 2]], [
+      // Initial advertisement messages
+      {from: 1, to: 2, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 1, [doc1._actorId]: 1}})
+      }},
+      {from: 2, to: 1, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 2, [doc2._actorId]: 3}})
+      }},
+
+      // Node 1 sends null clock to node 2
+      {from: 1, to: 2, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {}})
+      }},
+
+      // Node 2 sends the new document
+      {from: 2, to: 1, deliver: true, match(msg) {
+        assert.deepEqual(msg.clock, {"version": 2, [doc2._actorId]: 3})
+        assert.strictEqual(msg.changes.length, 3)
+      }},
+
+      // Node 1 confirms the new clock
+      {from: 1, to: 2, deliver: true, match(msg) {
+        assert.deepEqual(msg, {docId: 'doc1', clock: {"version": 2, [doc2._actorId]: 3}})
+      }},
+    ])
+
+    // Check document
+    assert.strictEqual(nodes[1].getDoc('doc1').doc1, 'doc1++++')
+    assert.strictEqual(nodes[2].getDoc('doc1').doc1, 'doc1++++')
+
+    // Check version
+    assert.strictEqual(nodes[1].getCurrentVersion('doc1'), 2)
+    assert.strictEqual(nodes[2].getCurrentVersion('doc1'), 2)
+  })
+
 })

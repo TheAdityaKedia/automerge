@@ -269,12 +269,12 @@ function applyQueuedOps(opSet) {
   }
 }
 
-function init() {
+function init(version) {
   return Map()
     .set('states',   Map())
     .set('history',  List())
     .set('byObject', Map().set(ROOT_ID, Map()))
-    .set('clock',    Map())
+    .set('clock',    Map({"version": version || 0}))
     .set('deps',     Map())
     .set('local',    List())
     .set('queue',    List())

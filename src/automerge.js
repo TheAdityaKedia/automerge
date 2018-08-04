@@ -126,10 +126,107 @@ function deleteField(state, objectId, key) {
   return makeOp(state, { action: 'del', obj: objectId, key: key })
 }
 
+///// Copy API
+
+function insertAfterCopy(state, listId, elemId) {
+  if (!state.hasIn(['opSet', 'byObject', listId])) throw 'List object does not exist'
+  if (!state.hasIn(['opSet', 'byObject', listId, elemId]) && elemId !== '_head') {
+    throw 'Preceding list element does not exist'
+  }
+  const elem = state.getIn(['opSet', 'byObject', listId, '_maxElem'], 0) + 1
+  state = makeOp(state, { action: 'ins', obj: listId, key: elemId, elem })
+  return [state, state.get('actorId') + ':' + elem]
+}
+
+function copyNestedObjects(state, value) {
+  const objectId = value._objectId
+
+  if (value instanceof Text) {
+    state = makeOp(state, { action: 'makeText', obj: objectId })
+    if (value.length > 0) throw 'assigning non-empty text is not yet supported'
+  } else if (Array.isArray(value)) {
+    state = makeOp(state, { action: 'makeList', obj: objectId })
+    let elemId = '_head'
+    for (let i = 0; i < value.length; i++) {
+      [state, elemId] = insertAfterCopy(state, objectId, elemId)
+      state = setFieldCopy(state, objectId, elemId, value[i])
+    }
+  } else {
+    state = makeOp(state, { action: 'makeMap', obj: objectId })
+    for (let key of Object.keys(value)) state = setFieldCopy(state, objectId, key, value[key])
+  }
+  return [state, objectId]
+}
+
+function setFieldCopy(state, objectId, key, value) {
+  if (typeof key !== 'string') {
+    throw new TypeError('The key of a map entry must be a string, but ' +
+                        JSON.stringify(key) + ' is a ' + (typeof key))
+  }
+  if (key === '') {
+    throw new TypeError('The key of a map entry must not be an empty string')
+  }
+  if (key.startsWith('_')) {
+    throw new TypeError('Map entries starting with underscore are not allowed: ' + key)
+  }
+
+  if (!['object', 'boolean', 'number', 'string'].includes(typeof value)) {
+    throw new TypeError('Unsupported type of value: ' + (typeof value))
+  } else if (isObject(value)) {
+    const [newState, newId] = copyNestedObjects(state, value)
+    return makeOp(newState, { action: 'link', obj: objectId, key, value: newId })
+  } else {
+    return makeOp(state, { action: 'set', obj: objectId, key, value })
+  }
+}
+
+function spliceCopy(state, objectId, start, deletions, insertions) {
+  let elemIds = state.getIn(['opSet', 'byObject', objectId, '_elemIds'])
+  for (let i = 0; i < deletions; i++) {
+    let elemId = elemIds.keyOf(start)
+    if (elemId) {
+      state = makeOp(state, {action: 'del', obj: objectId, key: elemId})
+      elemIds = state.getIn(['opSet', 'byObject', objectId, '_elemIds'])
+    }
+  }
+
+  // Apply insertions
+  let prev = (start === 0) ? '_head' : elemIds.keyOf(start - 1)
+  if (!prev && insertions.length > 0) {
+    throw new RangeError('Cannot insert at index ' + start + ', which is past the end of the list')
+  }
+  for (let ins of insertions) {
+    [state, prev] = insertAfterCopy(state, objectId, prev)
+    state = setFieldCopy(state, objectId, prev, ins)
+  }
+  return state
+}
+
+function setListIndexCopy(state, listId, index, value) {
+  const elemIds = state.getIn(['opSet', 'byObject', listId, '_elemIds'])
+  const elem = elemIds.keyOf(parseListIndex(index))
+  if (elem) {
+    return setFieldCopy(state, listId, elem, value)
+  } else {
+    return spliceCopy(state, listId, index, 0, [value])
+  }
+}
+
+function deleteFieldCopy(state, objectId, key) {
+  const objType = state.getIn(['opSet', 'byObject', objectId, '_init', 'action'])
+  if (objType === 'makeList' || objType === 'makeText') {
+    return splice(state, objectId, parseListIndex(key), 1, [])
+  }
+  if (!state.hasIn(['opSet', 'byObject', objectId, key])) {
+    return state;
+  }
+  return makeOp(state, { action: 'del', obj: objectId, key: key })
+}
+
 ///// Automerge.* API
 
-function init(actorId) {
-  return FreezeAPI.init(actorId || uuid())
+function init(actorId, version) {
+  return FreezeAPI.init(actorId || uuid(), version || 0)
 }
 
 function initImmutable(actorId) {
@@ -177,6 +274,34 @@ function emptyChange(doc, message) {
     throw new TypeError('Change message must be a string')
   }
   return makeChange(doc, doc._state, message)
+}
+
+function shallowCopy(doc, message, callback) {
+  checkTarget('change', doc)
+  if (doc._objectId !== '00000000-0000-0000-0000-000000000000') {
+    throw new TypeError('The first argument to Automerge.change must be the document root')
+  }
+  if (doc._change && doc._change.mutable) {
+    throw new TypeError('Calls to Automerge.change cannot be nested')
+  }
+  if (typeof message === 'function' && callback === undefined) {
+    [message, callback] = [callback, message]
+  }
+
+  const context = {
+    state: doc._state,
+    mutable: true,
+    setField: setFieldCopy,
+    splice: spliceCopy,
+    setListIndex: setListIndexCopy,
+    deleteField: deleteFieldCopy
+  }
+  callback(rootObjectProxy(context))
+  return makeChange(doc, context.state, message)
+}
+
+function createSnapshot(doc, message, version, callback) {
+  return shallowCopy(init(doc._actorId, version), message, callback)
 }
 
 function assign(target, values) {
@@ -305,7 +430,7 @@ function getMissingDeps(doc) {
 
 module.exports = {
   init, change, emptyChange, merge, diff, assign, load, save, equals, inspect, getHistory,
-  initImmutable, loadImmutable, getConflicts,
+  initImmutable, loadImmutable, getConflicts, shallowCopy, createSnapshot,
   getChanges, getChangesForActor, applyChanges, getMissingDeps, Text, uuid,
   getMissingChanges: OpSet.getMissingChanges,
   DocSet: require('./doc_set'),
